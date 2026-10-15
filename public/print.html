@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Cetak Label Barcode A4</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; margin: 20px; background: #f0f2f5; }
+
+  .toolbar {
+    background: #fff; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  .toolbar label { font-size: 13px; font-weight: bold; }
+  .toolbar select, .toolbar input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+  .btn {
+    padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer;
+    font-weight: bold; font-size: 13px;
+  }
+  .btn-primary { background: #0d6efd; color: #fff; }
+  .btn-primary:hover { background: #0b5ed7; }
+  .btn-secondary { background: #6c757d; color: #fff; }
+
+  .info { font-size: 12px; color: #666; width: 100%; }
+
+  /* ===== AREA LABEL ===== */
+  #sheet {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    background: #fff;
+    box-shadow: 0 0 8px rgba(0,0,0,.25);
+    padding: 10mm;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 0;
+  }
+
+  .label {
+    /* 190mm usable / 4 kolom = 47.5mm lebar; tinggi 25mm */
+    width: 47.5mm;
+    height: 25mm;
+    padding: 1.5mm;
+    border: 1px dashed #ccc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .label .nama {
+    font-size: 8.5px;
+    font-weight: bold;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 1mm;
+  }
+  .label svg { max-width: 95%; max-height: 16mm; }
+
+  @media print {
+    body { margin: 0; background: #fff; }
+    .toolbar { display: none; }
+    #sheet {
+      width: 210mm; height: 297mm; margin: 0; box-shadow: none; padding: 10mm;
+    }
+    .label { border: none; }
+    @page { size: A4 portrait; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <label>Jenis Barcode:</label>
+  <select id="fmt">
+    <option value="CODE128">CODE128 (default)</option>
+    <option value="CODE39">CODE39</option>
+    <option value="EAN13">EAN-13 (13 digit)</option>
+  </select>
+
+  <label>Ukuran Label:</label>
+  <select id="size">
+    <option value="4x13">Kecil — 4 kolom × 13 baris (±48×21mm)</option>
+    <option value="3x10">Sedang — 3 kolom × 10 baris (±63×28mm)</option>
+    <option value="2x7">Besar — 2 kolom × 7 baris (±95×40mm)</option>
+  </select>
+
+  <label>Jumlah Per Label:</label>
+  <input type="number" id="dup" value="1" min="1" max="50" style="width:60px">
+
+  <button class="btn btn-primary" onclick="applyAndRender()">Terapkan</button>
+  <button class="btn btn-primary" onclick="window.print()">🖨️ Cetak / Simpan PDF</button>
+  <span class="info">
+    Label digambar ulang saat "Terapkan" ditekan. Printer: ukuran kertas <b>A4</b>, skala <b>100%</b> (jangan "fit to page") agar barcode tetap terbaca scanner.
+  </span>
+</div>
+
+<div id="sheet"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const raw = params.get('barcodes');
+
+async function loadItems() {
+  const res = await fetch(raw ? `/api/print-barcode?barcodes=${encodeURIComponent(raw)}` : '/api/print-barcode');
+  if (!res.ok) {
+    document.getElementById('sheet').innerHTML =
+      '<p style="padding:20px">Gagal memuat data (butuh login admin di tab utama). <a href="/" target="_blank">Login dulu</a> lalu buka halaman ini lagi.</p>';
+    return [];
+  }
+  return res.json();
+}
+
+function gridColsRows() {
+  const [c, r] = document.getElementById('size').value.split('x').map(Number);
+  return { c, r };
+}
+
+function applyAndRender() { render(); }
+
+function render() {
+  window.__items = window.__items || [];
+  const sheet = document.getElementById('sheet');
+  sheet.innerHTML = '';
+
+  const { c, r } = gridColsRows();
+  const fmt = document.getElementById('fmt').value;
+  const dup = Math.max(1, parseInt(document.getElementById('dup').value) || 1);
+
+  // Sesuaikan ukuran label berdasarkan pilihan
+  const labels = [];
+  window.__items.forEach(it => { for (let i = 0; i < dup; i++) labels.push(it); });
+
+  sheet.style.display = 'flex';
+  labels.forEach(it => {
+    const div = document.createElement('div');
+    div.className = 'label';
+    div.style.width = (190 / c) + 'mm';
+    div.style.height = (277 / r) + 'mm';
+
+    const nama = document.createElement('div');
+    nama.className = 'nama';
+    nama.textContent = it.nama;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    div.appendChild(nama);
+    div.appendChild(svg);
+    sheet.appendChild(div);
+
+    try {
+      JsBarcode(svg, it.barcode, {
+        format: fmt,
+        width: 1.4,
+        height: 40,
+        displayValue: true,
+        fontSize: 12,
+        fontOptions: 'bold',
+        margin: 2,
+        lineColor: '#000'
+      });
+    } catch (e) {
+      svg.replaceWith(Object.assign(document.createElement('div'), {
+        textContent: `Kode tidak valid untuk ${fmt}: ${it.barcode}`,
+        style: 'color:red;font-size:9px'
+      }));
+    }
+  });
+}
+
+(async function init() {
+  window.__items = await loadItems();
+  if (window.__items.length === 0) return;
+  // Auto duplikat default: jika hanya 1-2 item, cetak 12 label biar sheet tidak kosong
+  if (window.__items.length <= 2) document.getElementById('dup').value = 12;
+  render();
+})();
+</script>
+
+</body>
+</html>
