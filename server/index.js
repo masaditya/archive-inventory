@@ -32,13 +32,13 @@ function requireAdmin(req, res, next) {
 }
 
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body || {};
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username || '');
+  const { password } = req.body || {};
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
   if (!user || !bcrypt.compareSync(password || '', user.password_hash)) {
-    return res.status(401).json({ error: 'Username atau password salah' });
+    return res.status(401).json({ error: 'Password salah' });
   }
   res.cookie('session', newToken(user.username), { httpOnly: true, sameSite: 'lax' });
-  res.json({ ok: true, username: user.username });
+  res.json({ ok: true });
 });
 
 app.post('/api/logout', (req, res) => {

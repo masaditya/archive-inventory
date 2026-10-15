@@ -16,6 +16,11 @@ db.exec(`
     password_hash TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
   CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     barcode TEXT UNIQUE NOT NULL,
@@ -38,12 +43,36 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transaksi_item ON transaksi(item_id);
 `);
 
-// Seed user admin (admin / admin123) jika belum ada
-const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-if (userCount === 0) {
-  const hash = bcrypt.hashSync('admin123', 10);
-  db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('admin', hash);
-  console.log('[DB] User admin dibuat (admin / admin123)');
+// ---- Migrasi: dijalankan otomatis sekali per nama migrasi ----
+const appliedMigrations = new Set(
+  db.prepare('SELECT name FROM schema_migrations').all().map(r => r.name)
+);
+
+const migrations = [
+  {
+    name: '001-reset-admin-password',
+    run(db) {
+      // Reset password admin ke 'biasane' tanpa menyentuh data barang/riwayat
+      const admin = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+      if (!admin) {
+        db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
+          .run('admin', bcrypt.hashSync('biasane', 10));
+      } else if (!bcrypt.compareSync('biasane', admin.password_hash)) {
+        db.prepare('UPDATE users SET password_hash = ? WHERE username = ?')
+          .run(bcrypt.hashSync('biasane', 10), 'admin');
+      }
+    },
+  },
+];
+
+const insertMigration = db.prepare('INSERT INTO schema_migrations (name) VALUES (?)');
+for (const m of migrations) {
+  if (appliedMigrations.has(m.name)) continue;
+  db.transaction(() => {
+    m.run(db);
+    insertMigration.run(m.name);
+  })();
+  console.log(`[DB] Migrasi dijalankan: ${m.name}`);
 }
 
 module.exports = db;

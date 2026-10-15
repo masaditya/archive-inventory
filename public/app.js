@@ -46,10 +46,9 @@ function toggleAuth() {
 }
 
 async function doLogin() {
-  const username = document.getElementById('loginUser').value.trim();
   const password = document.getElementById('loginPass').value;
   try {
-    await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    await api('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
     bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
     await checkAuthStatus();
     new bootstrap.Tab(document.querySelector('#pills-data-tab')).show();
@@ -337,6 +336,40 @@ function cancelScan() {
   if (html5QrcodeScanner && html5QrcodeScanner.getState() === 3) html5QrcodeScanner.resume();
 }
 
+/* ==================== ROUTING TAB (hash) ==================== */
+const TAB_ROUTES = {
+  'pills-data-tab': 'data',
+  'pills-tambah-tab': 'tambah',
+  'pills-laporan-tab': 'laporan',
+  'pills-scan-tab': 'scan',
+};
+const ROUTE_TABS = Object.fromEntries(Object.entries(TAB_ROUTES).map(([tab, route]) => [route, tab]));
+
+// Saat tab berpindah (klik), simpan route ke URL
+document.querySelectorAll('button[data-bs-toggle="pill"]').forEach(tab => {
+  tab.addEventListener('shown.bs.tab', event => {
+    const route = TAB_ROUTES[event.target.id];
+    if (route && location.hash !== `#/${route}`) {
+      history.replaceState(null, '', `#/${route}`);
+    }
+    if (event.target.id === 'pills-scan-tab') startScanner();
+  });
+});
+
+// Aktifkan tab sesuai hash saat halaman dibuka / hash berubah (back/forward)
+function activateTabFromHash() {
+  const route = location.hash.replace(/^#\/?/, '') || 'scan';
+  const tabId = ROUTE_TABS[route];
+  if (!tabId) return;
+  const el = document.getElementById(tabId);
+  if (!el) return;
+  if (!el.classList.contains('active')) {
+    bootstrap.Tab.getOrCreateInstance(el).show();
+  }
+}
+
+window.addEventListener('hashchange', activateTabFromHash);
+
 function onScanFailure(error) {}
 
 document.querySelectorAll('button[data-bs-toggle="pill"]').forEach(tab => {
@@ -350,5 +383,8 @@ document.querySelectorAll('button[data-bs-toggle="pill"]').forEach(tab => {
 
 window.onload = async function () {
   await checkAuthStatus();
-  startScanner();
+  activateTabFromHash();
+  if (document.getElementById('pills-scan-tab').classList.contains('active')) {
+    startScanner();
+  }
 };
